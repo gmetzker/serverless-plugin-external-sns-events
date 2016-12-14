@@ -72,7 +72,7 @@ module.exports = Class.extend({
 
       this._serverless.cli.log('Need to subscribe ' + fnDef.name + ' to ' + topicName);
 
-      return this._getSubscriptionInfo(fnName, fnDef, topicName)
+      return this._getSubscriptionInfo(fnDef, topicName)
          .then(function(info) {
             if (info.SubscriptionArn) {
                return self._serverless.cli.log('Function ' + info.FunctionArn + ' is already subscribed to ' + info.TopicArn);
@@ -91,7 +91,7 @@ module.exports = Class.extend({
 
       this._serverless.cli.log('Need to unsubscribe ' + fnDef.name + ' from ' + topicName);
 
-      return this._getSubscriptionInfo(fnName, fnDef, topicName)
+      return this._getSubscriptionInfo(fnDef, topicName)
          .then(function(info) {
             if (!info.SubscriptionArn) {
                return self._serverless.cli.log('Function ' + info.FunctionArn + ' is not subscribed to ' + info.TopicArn);
@@ -107,7 +107,7 @@ module.exports = Class.extend({
          });
    },
 
-   _getSubscriptionInfo: function(fnName, fnDef, topicName) {
+   _getSubscriptionInfo: function(fnDef, topicName) {
       var self = this,
           sns = new AWS.SNS(),
           lambda = new AWS.Lambda(),
