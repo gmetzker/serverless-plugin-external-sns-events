@@ -91,20 +91,20 @@ module.exports = Class.extend({
    },
 
    unsubscribeFunction: function(fnName, fnDef, topicName) {
-      var self = this,
-          sns = new AWS.SNS();
 
       this._serverless.cli.log('Need to unsubscribe ' + fnDef.name + ' from ' + topicName);
 
       return this._getSubscriptionInfo(fnDef, topicName)
-         .then(function(info) {
+         .then((info) => {
             if (!info.SubscriptionArn) {
                return self._serverless.cli.log('Function ' + info.FunctionArn + ' is not subscribed to ' + info.TopicArn);
             }
 
-            return Q.ninvoke(sns, 'unsubscribe', { SubscriptionArn: info.SubscriptionArn })
-               .then(function() {
-                  return self._serverless.cli.log(
+            return this._provider.request('SNS', 'unsubscribe',
+              { SubscriptionArn: info.SubscriptionArn },
+              this._opts.stage, this._opts.region)
+               .then(() => {
+                  return this._serverless.cli.log(
                      'Function ' + info.FunctionArn + ' is no longer subscribed to ' + info.TopicArn +
                      ' (deleted ' + info.SubscriptionArn + ')'
                   );
