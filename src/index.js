@@ -10,6 +10,7 @@ module.exports = Class.extend({
    init: function(serverless, opts) {
       this._serverless = serverless;
       this._opts = opts;
+      this._provider = serverless.getProvider('aws');
 
       this.hooks = {
          'deploy:compileEvents': this._loopEvents.bind(this, this.addEventPermission),
@@ -35,6 +36,7 @@ module.exports = Class.extend({
       _.each(this._serverless.service.functions, function(fnDef, fnName) {
          _.each(fnDef.events, function(evt) {
             if (evt.externalSNS) {
+
                fn.call(self, fnName, fnDef, evt.externalSNS);
             }
          });
@@ -61,8 +63,6 @@ module.exports = Class.extend({
    },
 
    subscribeFunction: function(fnName, fnDef, topicName) {
-      var self = this,
-          sns = new AWS.SNS();
 
       if (this._opts.noDeploy) {
          return this._serverless.cli.log(
@@ -73,15 +73,20 @@ module.exports = Class.extend({
       this._serverless.cli.log('Need to subscribe ' + fnDef.name + ' to ' + topicName);
 
       return this._getSubscriptionInfo(fnDef, topicName)
-         .then(function(info) {
+         .then((info) => {
+
             if (info.SubscriptionArn) {
-               return self._serverless.cli.log('Function ' + info.FunctionArn + ' is already subscribed to ' + info.TopicArn);
+               return this._serverless.cli.log('Function ' + info.FunctionArn + ' is already subscribed to ' + info.TopicArn);
             }
 
-            return Q.ninvoke(sns, 'subscribe', { TopicArn: info.TopicArn, Protocol: 'lambda', Endpoint: info.FunctionArn })
-               .then(function() {
-                  return self._serverless.cli.log('Function ' + info.FunctionArn + ' is now subscribed to ' + info.TopicArn);
-               });
+            return this._provider.request('SNS', 'subscribe', {
+                TopicArn: info.TopicArn,
+                Protocol: 'lambda',
+                Endpoint: info.FunctionArn
+              }, this._opts.stage, this._opts.region)
+              .then(() => {
+                  return this._serverless.cli.log('Function ' + info.FunctionArn + ' is now subscribed to ' + info.TopicArn);
+           });
          });
    },
 
@@ -108,34 +113,40 @@ module.exports = Class.extend({
    },
 
    _getSubscriptionInfo: function(fnDef, topicName) {
-      var self = this,
-          sns = new AWS.SNS(),
-          lambda = new AWS.Lambda(),
-          fnArn, acctID, region, topicArn;
+      var fnArn, acctID, region, topicArn;
 
-      return Q.ninvoke(lambda, 'getFunction', { FunctionName: fnDef.name })
-         .then(function(fn) {
-            fnArn = fn.Configuration.FunctionArn;
-            // NOTE: assumes that the topic is in the same account and region at this point
-            region = fnArn.split(':')[3];
-            acctID = fnArn.split(':')[4];
-            topicArn = 'arn:aws:sns:' + region + ':' + acctID + ':' + topicName;
+      return this._provider.request(
+        'Lambda',
+        'getFunction',
+        { FunctionName: fnDef.name },
+        this._opts.stage, this._opts.region
+      ).then((fn) => {
 
-            self._serverless.cli.log('Function ARN: ' + fnArn);
-            self._serverless.cli.log('Topic ARN: ' + topicArn);
+          fnArn = fn.Configuration.FunctionArn;
+          // NOTE: assumes that the topic is in the same account and region at this point
+          region = fnArn.split(':')[3];
+          acctID = fnArn.split(':')[4];
+          topicArn = 'arn:aws:sns:' + region + ':' + acctID + ':' + topicName;
 
-            // NOTE: does not support NextToken and paginating through subscriptions at this point
-            return Q.ninvoke(sns, 'listSubscriptionsByTopic', { TopicArn: topicArn });
-         })
-         .then(function(resp) {
-            var existing = _.findWhere(resp.Subscriptions, { Protocol: 'lambda', Endpoint: fnArn }) || {};
+          this._serverless.cli.log('Function ARN: ' + fnArn);
+          this._serverless.cli.log('Topic ARN: ' + topicArn);
 
-            return {
-               FunctionArn: fnArn,
-               TopicArn: topicArn,
-               SubscriptionArn: existing.SubscriptionArn,
-            };
-         });
+          // NOTE: does not support NextToken and paginating through subscriptions at this point
+          return this._provider.request('SNS', 'listSubscriptionsByTopic',
+            { TopicArn: topicArn }, this._opts.stage, this._opts.region);
+
+       })
+       .then((resp) => {
+          var existing = _.findWhere(resp.Subscriptions, { Protocol: 'lambda', Endpoint: fnArn }) || {};
+
+          return {
+             FunctionArn: fnArn,
+             TopicArn: topicArn,
+             SubscriptionArn: existing.SubscriptionArn,
+          };
+       });
+
+
    },
 
    _normalize: function(s) {
