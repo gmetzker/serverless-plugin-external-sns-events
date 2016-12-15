@@ -1,8 +1,6 @@
 'use strict';
 
 var _ = require('underscore'),
-    Q = require('q'),
-    AWS = require('aws-sdk'),
     Class = require('class.extend');
 
 module.exports = Class.extend({
