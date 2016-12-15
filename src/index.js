@@ -20,9 +20,11 @@ module.exports = Class.extend({
 
       this.commands = {
          subscribeExternalSNS: {
+            usage: 'Adds subscriptions to any SNS Topics defined by externalSNS.',
             lifecycleEvents: [ 'subscribe' ],
          },
          unsubscribeExternalSNS: {
+            usage: 'Removes subscriptions to any SNS Topics defined by externalSNS.',
             lifecycleEvents: [ 'unsubscribe' ],
          },
       };
