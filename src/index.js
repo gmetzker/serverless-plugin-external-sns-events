@@ -8,7 +8,7 @@ module.exports = Class.extend({
    init: function(serverless, opts) {
       this._serverless = serverless;
       this._opts = opts;
-      this._provider = serverless.getProvider('aws');
+      this._provider = serverless ? serverless.getProvider('aws') : null;
 
       this.hooks = {
          'deploy:compileEvents': this._loopEvents.bind(this, this.addEventPermission),
