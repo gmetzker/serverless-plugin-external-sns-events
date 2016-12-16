@@ -64,6 +64,7 @@ module.exports = Class.extend({
    },
 
    subscribeFunction: function(fnName, fnDef, topicName) {
+      var self = this;
 
       if (this._opts.noDeploy) {
          return this._serverless.cli.log(
@@ -74,78 +75,80 @@ module.exports = Class.extend({
       this._serverless.cli.log('Need to subscribe ' + fnDef.name + ' to ' + topicName);
 
       return this._getSubscriptionInfo(fnDef, topicName)
-         .then((info) => {
+         .then(function(info) {
+            var params;
 
             if (info.SubscriptionArn) {
-               return this._serverless.cli.log('Function ' + info.FunctionArn + ' is already subscribed to ' + info.TopicArn);
+               return self._serverless.cli.log('Function ' + info.FunctionArn + ' is already subscribed to ' + info.TopicArn);
             }
-
-            return this._provider.request('SNS', 'subscribe', {
-                TopicArn: info.TopicArn,
-                Protocol: 'lambda',
-                Endpoint: info.FunctionArn
-              }, this._opts.stage, this._opts.region)
-              .then(() => {
-                  return this._serverless.cli.log('Function ' + info.FunctionArn + ' is now subscribed to ' + info.TopicArn);
-           });
+            params = {
+               TopicArn: info.TopicArn,
+               Protocol: 'lambda',
+               Endpoint: info.FunctionArn
+            };
+            return self._provider.request('SNS', 'subscribe', params, self._opts.stage, self._opts.region)
+               .then(function() {
+                  return self._serverless.cli.log('Function ' + info.FunctionArn + ' is now subscribed to ' + info.TopicArn);
+               });
          });
    },
 
    unsubscribeFunction: function(fnName, fnDef, topicName) {
+      var self = this;
 
       this._serverless.cli.log('Need to unsubscribe ' + fnDef.name + ' from ' + topicName);
 
       return this._getSubscriptionInfo(fnDef, topicName)
-         .then((info) => {
+         .then(function(info) {
+            var params = { SubscriptionArn: info.SubscriptionArn };
+
             if (!info.SubscriptionArn) {
                return self._serverless.cli.log('Function ' + info.FunctionArn + ' is not subscribed to ' + info.TopicArn);
             }
 
-            return this._provider.request('SNS', 'unsubscribe',
-              { SubscriptionArn: info.SubscriptionArn },
-              this._opts.stage, this._opts.region)
-               .then(() => {
-                  return this._serverless.cli.log(
-                     'Function ' + info.FunctionArn + ' is no longer subscribed to ' + info.TopicArn +
-                     ' (deleted ' + info.SubscriptionArn + ')'
+            return self._provider.request('SNS', 'unsubscribe', params, self._opts.stage, self._opts.region)
+               .then(function() {
+                  return self._serverless.cli.log(
+                    'Function ' + info.FunctionArn + ' is no longer subscribed to ' + info.TopicArn +
+                    ' (deleted ' + info.SubscriptionArn + ')'
                   );
                });
          });
    },
 
    _getSubscriptionInfo: function(fnDef, topicName) {
-      var fnArn, acctID, region, topicArn;
+      var self = this,
+          fnArn, acctID, region, topicArn, params;
 
-      return this._provider.request(
-        'Lambda',
-        'getFunction',
-        { FunctionName: fnDef.name },
-        this._opts.stage, this._opts.region
-      ).then((fn) => {
+      params = { FunctionName: fnDef.name };
 
-          fnArn = fn.Configuration.FunctionArn;
-          // NOTE: assumes that the topic is in the same account and region at this point
-          region = fnArn.split(':')[3];
-          acctID = fnArn.split(':')[4];
-          topicArn = 'arn:aws:sns:' + region + ':' + acctID + ':' + topicName;
+      return this._provider.request('Lambda', 'getFunction', params, this._opts.stage, this._opts.region)
+         .then(function(fn) {
 
-          this._serverless.cli.log('Function ARN: ' + fnArn);
-          this._serverless.cli.log('Topic ARN: ' + topicArn);
+            fnArn = fn.Configuration.FunctionArn;
+            // NOTE: assumes that the topic is in the same account and region at this point
+            region = fnArn.split(':')[3];
+            acctID = fnArn.split(':')[4];
+            topicArn = 'arn:aws:sns:' + region + ':' + acctID + ':' + topicName;
 
-          // NOTE: does not support NextToken and paginating through subscriptions at this point
-          return this._provider.request('SNS', 'listSubscriptionsByTopic',
-            { TopicArn: topicArn }, this._opts.stage, this._opts.region);
+            self._serverless.cli.log('Function ARN: ' + fnArn);
+            self._serverless.cli.log('Topic ARN: ' + topicArn);
 
-       })
-       .then((resp) => {
-          var existing = _.findWhere(resp.Subscriptions, { Protocol: 'lambda', Endpoint: fnArn }) || {};
+            // NOTE: does not support NextToken and paginating through subscriptions at this point
+            return self._provider.request('SNS', 'listSubscriptionsByTopic',
+              { TopicArn: topicArn }, self._opts.stage, self._opts.region
+            );
 
-          return {
-             FunctionArn: fnArn,
-             TopicArn: topicArn,
-             SubscriptionArn: existing.SubscriptionArn,
-          };
-       });
+         })
+         .then(function(resp) {
+            var existing = _.findWhere(resp.Subscriptions, { Protocol: 'lambda', Endpoint: fnArn }) || {};
+
+            return {
+               FunctionArn: fnArn,
+               TopicArn: topicArn,
+               SubscriptionArn: existing.SubscriptionArn,
+            };
+         });
 
 
    },
