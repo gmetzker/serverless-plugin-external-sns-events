@@ -8,7 +8,7 @@ module.exports = Class.extend({
    init: function(serverless, opts) {
       this._serverless = serverless;
       this._opts = opts;
-      this._provider = serverless ? serverless.getProvider('aws') : null;
+      this.provider = serverless ? serverless.getProvider('aws') : null;
 
       this.hooks = {
          'deploy:compileEvents': this._loopEvents.bind(this, this.addEventPermission),
@@ -83,13 +83,12 @@ module.exports = Class.extend({
                self._serverless.cli.log('Function ' + info.FunctionArn + ' is already subscribed to ' + info.TopicArn);
                return;
             }
-            self._serverless.cli.log('Got HERE!!!!');
             params = {
                TopicArn: info.TopicArn,
                Protocol: 'lambda',
                Endpoint: info.FunctionArn
             };
-            return self._provider.request('SNS', 'subscribe', params, self._opts.stage, self._opts.region)
+            return self.provider.request('SNS', 'subscribe', params, self._opts.stage, self._opts.region)
                .then(function() {
                   self._serverless.cli.log('Function ' + info.FunctionArn + ' is now subscribed to ' + info.TopicArn);
                   return;
@@ -110,7 +109,7 @@ module.exports = Class.extend({
                return self._serverless.cli.log('Function ' + info.FunctionArn + ' is not subscribed to ' + info.TopicArn);
             }
 
-            return self._provider.request('SNS', 'unsubscribe', params, self._opts.stage, self._opts.region)
+            return self.provider.request('SNS', 'unsubscribe', params, self._opts.stage, self._opts.region)
                .then(function() {
                   return self._serverless.cli.log(
                     'Function ' + info.FunctionArn + ' is no longer subscribed to ' + info.TopicArn +
@@ -126,7 +125,7 @@ module.exports = Class.extend({
 
       params = { FunctionName: fnDef.name };
 
-      return this._provider.request('Lambda', 'getFunction', params, this._opts.stage, this._opts.region)
+      return this.provider.request('Lambda', 'getFunction', params, this._opts.stage, this._opts.region)
          .then(function(fn) {
 
             fnArn = fn.Configuration.FunctionArn;
@@ -139,7 +138,7 @@ module.exports = Class.extend({
             self._serverless.cli.log('Topic ARN: ' + topicArn);
 
             // NOTE: does not support NextToken and paginating through subscriptions at this point
-            return self._provider.request('SNS', 'listSubscriptionsByTopic',
+            return self.provider.request('SNS', 'listSubscriptionsByTopic',
               { TopicArn: topicArn }, self._opts.stage, self._opts.region
             );
 
