@@ -24,6 +24,13 @@ describe('serverless-plugin-external-sns-events', function() {
 
             return provider;
          },
+         service: {
+            provider: {
+               compiledCloudFormationTemplate: {
+                  Resources: {}
+               }
+            }
+         },
          cli: { log: function() {
             return;
          } }
@@ -67,7 +74,50 @@ describe('serverless-plugin-external-sns-events', function() {
 
    describe('addEventPermission', function() {
 
-      // TODO: write tests
+      it('can compile lambda permission with correct FunctionName and SourceArn', function() {
+
+         // ARRANGE:
+
+         var plugin, mockServerless, spyRequestFunc, expPerm, expResourceName,
+             actualPerm,
+             topicName = 'cool-Topic',
+             functionName = 'myFunc';
+
+         mockServerless = createMockServerless(createMockRequest(sinon.stub()));
+         spyRequestFunc = sinon.spy(mockServerless.getProvider('aws'), 'request');
+
+         plugin = new Plugin(mockServerless, { });
+
+
+         // ACT:
+         plugin.addEventPermission(functionName, { name: functionName }, topicName);
+
+
+         // ASSERT:
+
+         expect(spyRequestFunc.callCount).to.be(0);
+
+         expect(Object.keys(mockServerless.service.provider.compiledCloudFormationTemplate.Resources).length).to.be(1);
+
+         expResourceName = 'MyFuncLambdaPermissionCoolTopic';
+
+         expect(expResourceName in mockServerless.service.provider.compiledCloudFormationTemplate.Resources).to.be(true);
+
+         actualPerm = mockServerless.service.provider.compiledCloudFormationTemplate.Resources[expResourceName];
+
+         expPerm = {
+            Type: 'AWS::Lambda::Permission',
+            Properties: {
+               FunctionName: { 'Fn::GetAtt': [ 'MyFuncLambdaFunction', 'Arn' ] },
+               Action: 'lambda:InvokeFunction',
+               Principal: 'sns.amazonaws.com',
+               SourceArn: { 'Fn::Join': [ ':', [ 'arn:aws:sns', { 'Ref': 'AWS::Region' }, { 'Ref': 'AWS::AccountId' }, 'cool-Topic' ] ] }
+            },
+         };
+
+         expect(actualPerm).to.eql(expPerm);
+
+      });
 
    });
 
