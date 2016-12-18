@@ -289,7 +289,7 @@ describe('serverless-plugin-external-sns-events', function() {
          // ASSERT:
 
          expect(isPromise(actual)).to.be(true);
-         
+
          return actual.then(function(result) {
 
             expect(stubGetSubscriptionInfo.callCount).to.be(1);
