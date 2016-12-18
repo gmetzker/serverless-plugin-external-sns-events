@@ -67,9 +67,10 @@ module.exports = Class.extend({
       var self = this;
 
       if (this._opts.noDeploy) {
-         return this._serverless.cli.log(
+         this._serverless.cli.log(
             'Not subscribing ' + fnDef.name + ' to ' + topicName + ' because of the noDeploy flag'
          );
+         return;
       }
 
       this._serverless.cli.log('Need to subscribe ' + fnDef.name + ' to ' + topicName);
@@ -79,8 +80,10 @@ module.exports = Class.extend({
             var params;
 
             if (info.SubscriptionArn) {
-               return self._serverless.cli.log('Function ' + info.FunctionArn + ' is already subscribed to ' + info.TopicArn);
+               self._serverless.cli.log('Function ' + info.FunctionArn + ' is already subscribed to ' + info.TopicArn);
+               return;
             }
+            self._serverless.cli.log('Got HERE!!!!');
             params = {
                TopicArn: info.TopicArn,
                Protocol: 'lambda',
@@ -88,7 +91,8 @@ module.exports = Class.extend({
             };
             return self._provider.request('SNS', 'subscribe', params, self._opts.stage, self._opts.region)
                .then(function() {
-                  return self._serverless.cli.log('Function ' + info.FunctionArn + ' is now subscribed to ' + info.TopicArn);
+                  self._serverless.cli.log('Function ' + info.FunctionArn + ' is now subscribed to ' + info.TopicArn);
+                  return;
                });
          });
    },

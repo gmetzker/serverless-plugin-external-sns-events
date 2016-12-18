@@ -1,9 +1,65 @@
 'use strict';
 
 var expect = require('expect.js'),
-    Plugin = require('../index.js');
+    Plugin = require('../index.js'),
+    BbPromise = require('bluebird'),
+    sinon = require('sinon');
 
 describe('serverless-plugin-external-sns-events', function() {
+
+   function createMockServerless(requestFunc) {
+
+      var serverless, provider;
+
+      provider = {
+         request: requestFunc
+      };
+
+      serverless = {
+         getProvider: function(providerName) {
+
+            if (providerName !== 'aws') {
+               return null;
+            }
+
+            return provider;
+         },
+         // cli: { log: function() {
+         //    return;
+         // } }
+         cli: { log: function(val) {
+            process.stdout.write(val + '\n');
+         } }
+      };
+
+      return serverless;
+
+   }
+
+   function createMockRequest(requestStub) {
+
+      return function() {
+
+         var reqArgs = Array.prototype.slice.call(arguments);
+
+
+         return new BbPromise(function(resolve, reject) {
+            var result;
+
+            result = requestStub.apply(undefined, reqArgs);
+            if (result !== null) {
+               resolve(result);
+               return;
+            }
+
+            reject(new Error('Call to request() with unexpected arguments:  ' +
+            JSON.stringify(reqArgs)));
+
+         });
+
+      };
+
+   }
 
    describe('addEventPermission', function() {
 
@@ -11,6 +67,239 @@ describe('serverless-plugin-external-sns-events', function() {
 
    });
 
+   describe('_getSubscriptionInfo', function() {
+
+      it('can return SNS Subscription info when subscription exists', function() {
+
+         // ARRANGE:
+         var mockServerless, requestMethod, actual, requestStub, plugin, lambdaArn, topicArn,
+             account = '12349',
+             topicName = 'cooltopic',
+             functionName = 'myFunc',
+             stage = 'test1',
+             region = 'us-west-42',
+             subscriptionArn = 'arn:aws:sns:correct';
+
+         lambdaArn = 'arn:aws:lambda:' + region + ':' + account + ':function:' + functionName;
+         topicArn = 'arn:aws:sns:' + region + ':' + account + ':' + topicName;
+
+         requestStub = sinon.stub();
+         requestStub.withArgs('Lambda', 'getFunction', { FunctionName: functionName }, stage, region)
+            .returns({ Configuration: { FunctionArn: lambdaArn } });
+
+         requestStub.withArgs('SNS', 'listSubscriptionsByTopic', { TopicArn: topicArn }, stage, region)
+            .returns({
+               Subscriptions: [
+                  { Protocol: 'other', Endpoint: lambdaArn, SubscriptionArn: 'junk' },
+                  { Protocol: 'lambda', Endpoint: lambdaArn, SubscriptionArn: subscriptionArn },
+                  { Protocol: 'lambda', Endpoint: 'wronglambda', SubscriptionArn: 'junksub' },
+               ]
+            });
+
+         mockServerless = createMockServerless(createMockRequest(requestStub));
+
+         requestMethod = sinon.spy(mockServerless.getProvider('aws'), 'request');
+
+         plugin = new Plugin(mockServerless, { stage: stage, region: region });
+
+
+         // ACT:
+         actual = plugin._getSubscriptionInfo({ name: functionName }, topicName);
+
+
+         // ASSERT:
+         return actual.then(function(result) {
+
+            expect(requestMethod.callCount).to.be(2);
+            expect(result).to.eql({
+               FunctionArn: lambdaArn,
+               TopicArn: topicArn,
+               SubscriptionArn: subscriptionArn
+            });
+         });
+
+
+      });
+
+      it('can return undefined Subscription info when subscription does NOT exist', function() {
+
+         // ARRANGE:
+         var mockServerless, requestMethod, actual, requestStub, plugin, lambdaArn, topicArn,
+             account = '12349',
+             topicName = 'cooltopic',
+             functionName = 'myFunc',
+             stage = 'test1',
+             region = 'us-west-42';
+
+         lambdaArn = 'arn:aws:lambda:' + region + ':' + account + ':function:' + functionName;
+         topicArn = 'arn:aws:sns:' + region + ':' + account + ':' + topicName;
+
+         requestStub = sinon.stub();
+         requestStub.withArgs('Lambda', 'getFunction', { FunctionName: functionName }, stage, region)
+            .returns({ Configuration: { FunctionArn: lambdaArn } });
+
+         requestStub.withArgs('SNS', 'listSubscriptionsByTopic', { TopicArn: topicArn }, stage, region)
+            .returns({
+               Subscriptions: [
+                  { Protocol: 'other', Endpoint: lambdaArn, SubscriptionArn: 'junk' },
+                  { Protocol: 'lambda', Endpoint: 'wronglambda', SubscriptionArn: 'junksub' },
+               ]
+            });
+
+         mockServerless = createMockServerless(createMockRequest(requestStub));
+
+         requestMethod = sinon.spy(mockServerless.getProvider('aws'), 'request');
+
+         plugin = new Plugin(mockServerless, { stage: stage, region: region });
+
+
+         // ACT:
+         actual = plugin._getSubscriptionInfo({ name: functionName }, topicName);
+
+
+         // ASSERT:
+         return actual.then(function(result) {
+
+            expect(requestMethod.callCount).to.be(2);
+            expect(result).to.eql({
+               FunctionArn: lambdaArn,
+               TopicArn: topicArn,
+               SubscriptionArn: undefined
+            });
+         });
+
+
+      });
+
+
+   });
+
+   describe('subscribeFunction', function() {
+
+      it('can exit early when noDeploy is true', function() {
+
+         // ARRANGE:
+         var requestStub, mockServerless, requestMethod, plugin, actual, spyGetSubscriptionInfo,
+             stage = 'test1',
+             region = 'us-west-42',
+             topicName = 'cooltopic',
+             functionName = 'myFunc';
+
+         requestStub = sinon.stub();
+         mockServerless = createMockServerless(createMockRequest(requestStub));
+         requestMethod = sinon.spy(mockServerless.getProvider('aws'), 'request');
+
+         plugin = new Plugin(mockServerless, { stage: stage, region: region, noDeploy: true });
+         spyGetSubscriptionInfo = sinon.spy(plugin, '_getSubscriptionInfo');
+
+         // ACT:
+         actual = plugin.subscribeFunction(functionName, { name: functionName }, topicName);
+
+         // ASSERT:
+         expect(actual).to.be(undefined);
+         expect(spyGetSubscriptionInfo.callCount).to.be(0);
+         expect(requestMethod.callCount).to.be(0);
+
+      });
+
+      it('will not add the subscription if it already exists', function() {
+
+         // ARRANGE:
+         var requestStub, mockServerless, requestMethod, plugin, actual,
+             stubGetSubscriptionInfo, funcDef,
+             stage = 'test1',
+             region = 'us-west-42',
+             topicName = 'cooltopic',
+             functionName = 'myFunc';
+
+         requestStub = sinon.stub();
+         mockServerless = createMockServerless(createMockRequest(requestStub));
+         requestMethod = sinon.spy(mockServerless.getProvider('aws'), 'request');
+
+         plugin = new Plugin(mockServerless, { stage: stage, region: region, noDeploy: false });
+         stubGetSubscriptionInfo = sinon.stub(plugin, '_getSubscriptionInfo', function() {
+            return BbPromise.resolve({
+               FunctionArn: 'some-func-arn',
+               TopicArn: 'some-topic-arn',
+               SubscriptionArn: 'subscription-arn-here',
+            });
+         });
+         funcDef = { name: functionName };
+
+         // ACT:
+         actual = plugin.subscribeFunction(functionName, funcDef, topicName);
+
+         // ASSERT:
+         return actual.then(function(result) {
+
+            expect(stubGetSubscriptionInfo.callCount).to.be(1);
+            expect(stubGetSubscriptionInfo.calledWithExactly(funcDef, topicName)).to.be(true);
+
+            // Since we mocked getSubscriptionInfo and added a fake SubscriptionArn
+            // then no subsequent requests should have been made to the provider.
+            expect(requestMethod.callCount).to.be(0);
+
+            expect(result).to.be(undefined);
+
+         });
+
+      });
+
+      it('will add the subscription if it does NOT exist', function() {
+
+         // ARRANGE:
+         var requestStub, mockServerless, requestMethod, plugin, actual,
+             stubGetSubscriptionInfo, funcDef, expSub,
+             stage = 'test1',
+             region = 'us-west-42',
+             topicName = 'cooltopic',
+             functionName = 'myFunc';
+
+         requestStub = sinon.stub();
+         mockServerless = createMockServerless(createMockRequest(requestStub));
+         requestMethod = sinon.spy(mockServerless.getProvider('aws'), 'request');
+
+         plugin = new Plugin(mockServerless, { stage: stage, region: region, noDeploy: false });
+         stubGetSubscriptionInfo = sinon.stub(plugin, '_getSubscriptionInfo', function() {
+            return BbPromise.resolve({
+               FunctionArn: 'some-func-arn',
+               TopicArn: 'some-topic-arn',
+               SubscriptionArn: undefined
+            });
+         });
+         funcDef = { name: functionName };
+
+         // ACT:
+         actual = plugin.subscribeFunction(functionName, funcDef, topicName);
+
+         // ASSERT:
+         return actual.then(function(result) {
+
+            expect(stubGetSubscriptionInfo.callCount).to.be(1);
+            expect(stubGetSubscriptionInfo.calledWithExactly(funcDef, topicName)).to.be(true);
+
+            // Since we mocked getSubscriptionInfo then we will only expect
+            // a single call to request, that is to add the subscription.
+            expect(requestMethod.callCount).to.be(1);
+
+            expSub = {
+               TopicArn: 'some-topic-arn',
+               Protocol: 'lambda',
+               Endpoint: 'some-func-arn'
+            };
+
+            expect(requestMethod.calledWithExactly('SNS', 'subscribe', expSub, stage, region))
+               .to
+               .be(true);
+
+
+            expect(result).to.be(undefined);
+
+         });
+
+      });
+
+   });
 
    describe('_normalize', function() {
       var plugin = new Plugin();
