@@ -24,12 +24,12 @@ describe('serverless-plugin-external-sns-events', function() {
 
             return provider;
          },
-         // cli: { log: function() {
-         //    return;
-         // } }
-         cli: { log: function(val) {
-            process.stdout.write(val + '\n');
+         cli: { log: function() {
+            return;
          } }
+         // cli: { log: function(val) {
+         //    process.stdout.write(val + '\n');
+         // } }
       };
 
       return serverless;
@@ -59,6 +59,10 @@ describe('serverless-plugin-external-sns-events', function() {
 
       };
 
+   }
+
+   function isPromise(obj) {
+      return !!obj && (typeof obj === 'object' || typeof obj === 'function') && typeof obj.then === 'function';
    }
 
    describe('addEventPermission', function() {
@@ -108,6 +112,9 @@ describe('serverless-plugin-external-sns-events', function() {
 
 
          // ASSERT:
+
+         expect(isPromise(actual)).to.be(true);
+
          return actual.then(function(result) {
 
             expect(requestMethod.callCount).to.be(2);
@@ -158,6 +165,9 @@ describe('serverless-plugin-external-sns-events', function() {
 
 
          // ASSERT:
+
+         expect(isPromise(actual)).to.be(true);
+
          return actual.then(function(result) {
 
             expect(requestMethod.callCount).to.be(2);
@@ -196,6 +206,7 @@ describe('serverless-plugin-external-sns-events', function() {
          actual = plugin.subscribeFunction(functionName, { name: functionName }, topicName);
 
          // ASSERT:
+         expect(isPromise(actual)).to.be(false);
          expect(actual).to.be(undefined);
          expect(spyGetSubscriptionInfo.callCount).to.be(0);
          expect(requestMethod.callCount).to.be(0);
@@ -230,6 +241,9 @@ describe('serverless-plugin-external-sns-events', function() {
          actual = plugin.subscribeFunction(functionName, funcDef, topicName);
 
          // ASSERT:
+
+         expect(isPromise(actual)).to.be(true);
+
          return actual.then(function(result) {
 
             expect(stubGetSubscriptionInfo.callCount).to.be(1);
@@ -245,7 +259,7 @@ describe('serverless-plugin-external-sns-events', function() {
 
       });
 
-      it('will add the subscription if it does NOT exist', function() {
+      it('can add the subscription if it does NOT exist', function() {
 
          // ARRANGE:
          var requestStub, mockServerless, requestMethod, plugin, actual,
@@ -273,6 +287,9 @@ describe('serverless-plugin-external-sns-events', function() {
          actual = plugin.subscribeFunction(functionName, funcDef, topicName);
 
          // ASSERT:
+
+         expect(isPromise(actual)).to.be(true);
+         
          return actual.then(function(result) {
 
             expect(stubGetSubscriptionInfo.callCount).to.be(1);
@@ -296,6 +313,110 @@ describe('serverless-plugin-external-sns-events', function() {
             expect(result).to.be(undefined);
 
          });
+
+      });
+
+   });
+
+   describe('unsubscribeFunction', function() {
+
+      it('will not unsubscribe if subscription does not exist', function() {
+
+         // ARRANGE:
+         var requestStub, mockServerless, plugin, actual, requestMethod,
+             stubGetSubscriptionInfo, funcDef,
+             stage = 'test1',
+             region = 'us-west-42',
+             topicName = 'cooltopic',
+             functionName = 'myFunc';
+
+         requestStub = sinon.stub();
+         mockServerless = createMockServerless(createMockRequest(requestStub));
+         requestMethod = sinon.spy(mockServerless.getProvider('aws'), 'request');
+
+         plugin = new Plugin(mockServerless, { stage: stage, region: region, noDeploy: false });
+         stubGetSubscriptionInfo = sinon.stub(plugin, '_getSubscriptionInfo', function() {
+            return BbPromise.resolve({
+               FunctionArn: 'some-func-arn',
+               TopicArn: 'some-topic-arn',
+               SubscriptionArn: undefined
+            });
+         });
+         funcDef = { name: functionName };
+
+         // ACT:
+         actual = plugin.unsubscribeFunction(functionName, funcDef, topicName);
+
+         // ASSERT:
+
+         expect(isPromise(actual)).to.be(true);
+
+         return actual.then(function() {
+
+            expect(stubGetSubscriptionInfo.callCount).to.be(1);
+            expect(stubGetSubscriptionInfo.calledWithExactly(funcDef, topicName)).to.be(true);
+
+            // Since we mocked getSubscriptionInfo to find no existing
+            // subscriptions then we will not expect any direct calls to
+            // the request method.
+            expect(requestMethod.callCount).to.be(0);
+
+         });
+
+
+      });
+
+      it('can unsubscribe if subscription exist', function() {
+
+         // ARRANGE:
+         var requestStub, mockServerless, plugin, actual, requestMethod,
+             stubGetSubscriptionInfo, funcDef, params,
+             stage = 'test1',
+             region = 'us-west-42',
+             topicName = 'cooltopic',
+             functionName = 'myFunc';
+
+         requestStub = sinon.stub();
+         mockServerless = createMockServerless(createMockRequest(requestStub));
+         requestMethod = sinon.spy(mockServerless.getProvider('aws'), 'request');
+
+         plugin = new Plugin(mockServerless, { stage: stage, region: region, noDeploy: false });
+         stubGetSubscriptionInfo = sinon.stub(plugin, '_getSubscriptionInfo', function() {
+            return BbPromise.resolve({
+               FunctionArn: 'some-func-arn',
+               TopicArn: 'some-topic-arn',
+               SubscriptionArn: 'some-subscription-arn'
+            });
+         });
+         funcDef = { name: functionName };
+
+
+         // ACT:
+         actual = plugin.unsubscribeFunction(functionName, funcDef, topicName);
+
+
+         // ASSERT:
+         expect(isPromise(actual)).to.be(true);
+
+         return actual.then(function() {
+
+            expect(stubGetSubscriptionInfo.callCount).to.be(1);
+            expect(stubGetSubscriptionInfo.calledWithExactly(funcDef, topicName)).to.be(true);
+
+            // Since we mocked getSubscriptionInfo we should
+            // only have one call to the request (to remove the subscription)
+            expect(requestMethod.callCount).to.be(1);
+
+            params = {
+               SubscriptionArn: 'some-subscription-arn'
+            };
+
+            expect(requestMethod.calledWithExactly('SNS', 'unsubscribe', params, stage, region))
+               .to
+               .be(true);
+
+         });
+
 
       });
 

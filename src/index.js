@@ -106,15 +106,17 @@ module.exports = Class.extend({
             var params = { SubscriptionArn: info.SubscriptionArn };
 
             if (!info.SubscriptionArn) {
-               return self._serverless.cli.log('Function ' + info.FunctionArn + ' is not subscribed to ' + info.TopicArn);
+               self._serverless.cli.log('Function ' + info.FunctionArn + ' is not subscribed to ' + info.TopicArn);
+               return;
             }
 
             return self.provider.request('SNS', 'unsubscribe', params, self._opts.stage, self._opts.region)
                .then(function() {
-                  return self._serverless.cli.log(
+                  self._serverless.cli.log(
                     'Function ' + info.FunctionArn + ' is no longer subscribed to ' + info.TopicArn +
                     ' (deleted ' + info.SubscriptionArn + ')'
                   );
+                  return;
                });
          });
    },
