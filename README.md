@@ -44,7 +44,7 @@ subscribe or unsubscribe the functions manually (outside of a deploy or remove
 command), you can use `serverless subscribeExternalSNS` or
 `serverless unsubscribeExternalSNS`.
 
-You can also set subscription attributes outlined [here](http://docs.aws.amazon.com/sns/latest/api/API_SetSubscriptionAttributes.html)
+You can also set subscription attributes outlined [here](http://docs.aws.amazon.com/sns/latest/dg/json-formats.html#set-sub-attributes-delivery-policy-json)
 
 ```
 functions:

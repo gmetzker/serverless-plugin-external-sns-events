@@ -204,7 +204,7 @@ module.exports = Class.extend({
           value, params;
 
       value = {
-         retryPolicy: attribute.value
+         healthyRetryPolicy: attribute.value
       };
 
       params = {

@@ -823,7 +823,7 @@ describe('serverless-plugin-external-sns-events', function() {
             expect(requestMethodArgs[2].SubscriptionArn).to.be(subscriptionArn);
 
             requestMethodParamArg = JSON.parse(requestMethodArgs[2].AttributeValue);
-            expect(requestMethodParamArg.retryPolicy).to.eql(attributeValue);
+            expect(requestMethodParamArg.healthyRetryPolicy).to.eql(attributeValue);
          });
       });
    });
