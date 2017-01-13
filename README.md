@@ -44,6 +44,21 @@ subscribe or unsubscribe the functions manually (outside of a deploy or remove
 command), you can use `serverless subscribeExternalSNS` or
 `serverless unsubscribeExternalSNS`.
 
+You can also set subscription attributes outlined [here](http://docs.aws.amazon.com/sns/latest/dg/json-formats.html#set-sub-attributes-delivery-policy-json)
+
+```
+functions:
+   doSomething:
+      name: ${self:service}-${self:provider.stage}-doSomething
+      handler: src/DoSomething.handler
+      events:
+         - externalSNS:
+            topic: 'some-topic-name'
+            DeliveryPolicy:
+                minDelayTarget: 20
+                maxDelayTarget: 60
+                numRetries: 10
+```
 
 ## How do I contribute?
 

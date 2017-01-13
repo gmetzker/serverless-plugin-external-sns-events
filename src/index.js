@@ -1,7 +1,7 @@
 'use strict';
-
 var _ = require('underscore'),
-    Class = require('class.extend');
+    Class = require('class.extend'),
+    DELIVERY_POLICY_ATTR = 'DeliveryPolicy';
 
 module.exports = Class.extend({
 
@@ -44,11 +44,17 @@ module.exports = Class.extend({
    },
 
    addEventPermission: function(fnName, fnDef, topicName) {
-      var normalizedFnName = this._normalize(fnName),
-          normalizedTopicName = this._normalizeTopicName(topicName),
+      var normalizedTopicName, permRef,
+          normalizedFnName = this._normalize(fnName),
           fnRef = normalizedFnName + 'LambdaFunction',
-          permRef = normalizedFnName + 'LambdaPermission' + normalizedTopicName,
           permission;
+
+      if (_.isObject(topicName)) {
+         topicName = topicName.topic;
+      }
+
+      normalizedTopicName = this._normalizeTopicName(topicName);
+      permRef = normalizedFnName + 'LambdaPermission' + normalizedTopicName;
 
       permission = {
          Type: 'AWS::Lambda::Permission',
@@ -64,7 +70,19 @@ module.exports = Class.extend({
    },
 
    subscribeFunction: function(fnName, fnDef, topicName) {
-      var self = this;
+      var self = this,
+          subscriptionAttrs;
+
+      if (_.isObject(topicName)) {
+         if (_.has(topicName, DELIVERY_POLICY_ATTR)) {
+            subscriptionAttrs = {
+               name: DELIVERY_POLICY_ATTR,
+               value: topicName[DELIVERY_POLICY_ATTR]
+            };
+         }
+
+         topicName = topicName.topic;
+      }
 
       if (this._opts.noDeploy) {
          this._serverless.cli.log(
@@ -81,6 +99,10 @@ module.exports = Class.extend({
 
             if (info.SubscriptionArn) {
                self._serverless.cli.log('Function ' + info.FunctionArn + ' is already subscribed to ' + info.TopicArn);
+               if (subscriptionAttrs && info.SubscriptionArn) {
+                  self._serverless.cli.log('Setting subscription attributes');
+                  return self._setSubscriptionAttributes(info.SubscriptionArn, subscriptionAttrs);
+               }
                return;
             }
             params = {
@@ -89,8 +111,12 @@ module.exports = Class.extend({
                Endpoint: info.FunctionArn
             };
             return self.provider.request('SNS', 'subscribe', params, self._opts.stage, self._opts.region)
-               .then(function() {
+               .then(function(response) {
                   self._serverless.cli.log('Function ' + info.FunctionArn + ' is now subscribed to ' + info.TopicArn);
+                  if (subscriptionAttrs && response.SubscriptionArn) {
+                     self._serverless.cli.log('Setting subscription attributes');
+                     return self._setSubscriptionAttributes(response.SubscriptionArn, subscriptionAttrs);
+                  }
                   return;
                });
          });
@@ -99,6 +125,9 @@ module.exports = Class.extend({
    unsubscribeFunction: function(fnName, fnDef, topicName) {
       var self = this;
 
+      if (_.isObject(topicName)) {
+         topicName = topicName.topic;
+      }
       this._serverless.cli.log('Need to unsubscribe ' + fnDef.name + ' from ' + topicName);
 
       return this._getSubscriptionInfo(fnDef, topicName)
@@ -113,8 +142,8 @@ module.exports = Class.extend({
             return self.provider.request('SNS', 'unsubscribe', params, self._opts.stage, self._opts.region)
                .then(function() {
                   self._serverless.cli.log(
-                    'Function ' + info.FunctionArn + ' is no longer subscribed to ' + info.TopicArn +
-                    ' (deleted ' + info.SubscriptionArn + ')'
+                     'Function ' + info.FunctionArn + ' is no longer subscribed to ' + info.TopicArn +
+                     ' (deleted ' + info.SubscriptionArn + ')'
                   );
                   return;
                });
@@ -141,7 +170,7 @@ module.exports = Class.extend({
 
             // NOTE: does not support NextToken and paginating through subscriptions at this point
             return self.provider.request('SNS', 'listSubscriptionsByTopic',
-              { TopicArn: topicArn }, self._opts.stage, self._opts.region
+               { TopicArn: topicArn }, self._opts.stage, self._opts.region
             );
 
          })
@@ -168,6 +197,23 @@ module.exports = Class.extend({
 
    _normalizeTopicName: function(arn) {
       return this._normalize(arn.replace(/[^0-9A-Za-z]/g, ''));
+   },
+
+   _setSubscriptionAttributes: function(subscriptionArn, attribute) {
+      var self = this,
+          value, params;
+
+      value = {
+         healthyRetryPolicy: attribute.value
+      };
+
+      params = {
+         AttributeName: attribute.name,
+         SubscriptionArn: subscriptionArn,
+         AttributeValue: JSON.stringify(value)
+      };
+
+      return self.provider.request('SNS', 'setSubscriptionAttributes', params, self._opts.stage, self._opts.region);
    },
 
 });

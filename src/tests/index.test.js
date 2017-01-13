@@ -1,9 +1,9 @@
 'use strict';
-
 var expect = require('expect.js'),
     Plugin = require('../index.js'),
     BbPromise = require('bluebird'),
-    sinon = require('sinon');
+    sinon = require('sinon'),
+    DELIVERY_POLICY_ATTR = 'DeliveryPolicy';
 
 describe('serverless-plugin-external-sns-events', function() {
 
@@ -117,6 +117,51 @@ describe('serverless-plugin-external-sns-events', function() {
 
          expect(actualPerm).to.eql(expPerm);
 
+      });
+
+      it('can handle an object as event args', function() {
+         // ARRANGE:
+
+         var plugin, mockServerless, spyRequestFunc, expPerm, expResourceName,
+             actualPerm,
+             topicName = 'cool-Topic',
+             functionName = 'myFunc';
+
+         mockServerless = createMockServerless(createMockRequest(sinon.stub()));
+         spyRequestFunc = sinon.spy(mockServerless.getProvider('aws'), 'request');
+
+         plugin = new Plugin(mockServerless, { });
+
+
+         // ACT:
+         plugin.addEventPermission(functionName, { name: functionName }, {
+            topic: topicName
+         });
+
+
+         // ASSERT:
+
+         expect(spyRequestFunc.callCount).to.be(0);
+
+         expect(Object.keys(mockServerless.service.provider.compiledCloudFormationTemplate.Resources).length).to.be(1);
+
+         expResourceName = 'MyFuncLambdaPermissionCoolTopic';
+
+         expect(expResourceName in mockServerless.service.provider.compiledCloudFormationTemplate.Resources).to.be(true);
+
+         actualPerm = mockServerless.service.provider.compiledCloudFormationTemplate.Resources[expResourceName];
+
+         expPerm = {
+            Type: 'AWS::Lambda::Permission',
+            Properties: {
+               FunctionName: { 'Fn::GetAtt': [ 'MyFuncLambdaFunction', 'Arn' ] },
+               Action: 'lambda:InvokeFunction',
+               Principal: 'sns.amazonaws.com',
+               SourceArn: { 'Fn::Join': [ ':', [ 'arn:aws:sns', { 'Ref': 'AWS::Region' }, { 'Ref': 'AWS::AccountId' }, 'cool-Topic' ] ] }
+            },
+         };
+
+         expect(actualPerm).to.eql(expPerm);
       });
 
    });
@@ -366,6 +411,169 @@ describe('serverless-plugin-external-sns-events', function() {
 
       });
 
+      it('an add the subscription attributes on an already existing subscription', function() {
+
+         // ARRANGE:
+         var requestStub, mockServerless, requestMethod, plugin, actual, eventArgs,
+             stubGetSubscriptionInfo, stubSetSubscriptionAttributes, funcDef,
+             stage = 'test1',
+             region = 'us-west-42',
+             topicName = 'cooltopic',
+             functionName = 'myFunc';
+
+         eventArgs = {
+            topic: topicName,
+            DeliveryPolicy: {
+               maxDelayTarget: 60,
+               numRetries: 10
+            }
+         };
+
+         requestStub = sinon.stub();
+         mockServerless = createMockServerless(createMockRequest(requestStub));
+         requestMethod = sinon.spy(mockServerless.getProvider('aws'), 'request');
+
+         plugin = new Plugin(mockServerless, { stage: stage, region: region, noDeploy: false });
+         stubGetSubscriptionInfo = sinon.stub(plugin, '_getSubscriptionInfo', function() {
+            return BbPromise.resolve({
+               FunctionArn: 'some-func-arn',
+               TopicArn: 'some-topic-arn',
+               SubscriptionArn: 'subscription-arn-here',
+            });
+         });
+
+         stubSetSubscriptionAttributes = sinon.stub(plugin, '_setSubscriptionAttributes', function() {
+            return {
+               ResponseMetadata: {
+                  RequestId: 'some-req-id'
+               }
+            };
+         });
+         funcDef = { name: functionName };
+
+         // ACT:
+         actual = plugin.subscribeFunction(functionName, funcDef, eventArgs);
+
+         // ASSERT:
+
+         expect(isPromise(actual)).to.be(true);
+
+         return actual.then(function(result) {
+
+            expect(stubGetSubscriptionInfo.callCount).to.be(1);
+            expect(stubGetSubscriptionInfo.calledWithExactly(funcDef, topicName)).to.be(true);
+
+            // Since we mocked getSubscriptionInfo and added a fake SubscriptionArn
+            // then no subsequent requests should have been made to the provider.
+            expect(requestMethod.callCount).to.be(0);
+
+            expect(result).to.eql({
+               ResponseMetadata: {
+                  RequestId: 'some-req-id'
+               }
+            });
+
+            expect(stubSetSubscriptionAttributes.callCount).to.be(1);
+            expect(stubSetSubscriptionAttributes.calledWithExactly('subscription-arn-here', {
+               name: 'DeliveryPolicy',
+               value: {
+                  maxDelayTarget: 60,
+                  numRetries: 10
+               }
+            }));
+
+         });
+
+      });
+
+      it('can add the subscription attributes on a newly created subscription', function() {
+
+         // ARRANGE:
+         var requestStub, mockServerless, requestMethod, plugin, actual, eventArgs,
+             stubGetSubscriptionInfo, stubSetSubscriptionAttributes, funcDef, expSub,
+             stage = 'test1',
+             region = 'us-west-42',
+             topicName = 'cooltopic',
+             functionName = 'myFunc';
+
+         eventArgs = {
+            topic: topicName,
+            DeliveryPolicy: {
+               maxDelayTarget: 60,
+               numRetries: 10
+            }
+         };
+         expSub = {
+            TopicArn: 'some-topic-arn',
+            Protocol: 'lambda',
+            Endpoint: 'some-func-arn'
+         };
+
+         requestStub = sinon.stub();
+         requestStub.withArgs('SNS', 'subscribe', expSub, stage, region)
+            .returns(BbPromise.resolve({
+               SubscriptionArn: 'some-sub-arn'
+            }));
+         mockServerless = createMockServerless(createMockRequest(requestStub));
+         requestMethod = sinon.spy(mockServerless.getProvider('aws'), 'request');
+
+         plugin = new Plugin(mockServerless, { stage: stage, region: region, noDeploy: false });
+         stubGetSubscriptionInfo = sinon.stub(plugin, '_getSubscriptionInfo', function() {
+            return BbPromise.resolve({
+               FunctionArn: 'some-func-arn',
+               TopicArn: 'some-topic-arn',
+               SubscriptionArn: undefined
+            });
+         });
+         stubSetSubscriptionAttributes = sinon.stub(plugin, '_setSubscriptionAttributes', function() {
+            return {
+               ResponseMetadata: {
+                  RequestId: 'some-req-id'
+               }
+            };
+         });
+         funcDef = { name: functionName };
+
+         // ACT:
+         actual = plugin.subscribeFunction(functionName, funcDef, eventArgs);
+
+         // ASSERT:
+
+         expect(isPromise(actual)).to.be(true);
+
+         return actual.then(function(result) {
+
+            expect(stubGetSubscriptionInfo.callCount).to.be(1);
+            expect(stubGetSubscriptionInfo.calledWithExactly(funcDef, topicName)).to.be(true);
+
+            // Since we mocked getSubscriptionInfo then we will only expect
+            // a single call to request, that is to add the subscription.
+            expect(requestMethod.callCount).to.be(1);
+
+            expect(requestMethod.calledWithExactly('SNS', 'subscribe', expSub, stage, region))
+               .to
+               .be(true);
+
+
+            expect(result).to.eql({
+               ResponseMetadata: {
+                  RequestId: 'some-req-id'
+               }
+            });
+
+            expect(stubSetSubscriptionAttributes.callCount).to.be(1);
+            expect(stubSetSubscriptionAttributes.calledWithExactly('some-sub-arn', {
+               name: 'DeliveryPolicy',
+               value: {
+                  maxDelayTarget: 60,
+                  numRetries: 10
+               }
+            }));
+
+         });
+
+      });
+
    });
 
    describe('unsubscribeFunction', function() {
@@ -470,6 +678,62 @@ describe('serverless-plugin-external-sns-events', function() {
 
       });
 
+      it('can handle an object as event args', function() {
+
+         // ARRANGE:
+         var requestStub, mockServerless, plugin, actual, requestMethod,
+             stubGetSubscriptionInfo, funcDef, params,
+             stage = 'test1',
+             region = 'us-west-42',
+             topicName = 'cooltopic',
+             functionName = 'myFunc';
+
+         requestStub = sinon.stub();
+         mockServerless = createMockServerless(createMockRequest(requestStub));
+         requestMethod = sinon.spy(mockServerless.getProvider('aws'), 'request');
+
+         plugin = new Plugin(mockServerless, { stage: stage, region: region, noDeploy: false });
+         stubGetSubscriptionInfo = sinon.stub(plugin, '_getSubscriptionInfo', function() {
+            return BbPromise.resolve({
+               FunctionArn: 'some-func-arn',
+               TopicArn: 'some-topic-arn',
+               SubscriptionArn: 'some-subscription-arn'
+            });
+         });
+         funcDef = { name: functionName };
+
+
+         // ACT:
+         actual = plugin.unsubscribeFunction(functionName, funcDef, {
+            topic: topicName
+         });
+
+
+         // ASSERT:
+         expect(isPromise(actual)).to.be(true);
+
+         return actual.then(function() {
+
+            expect(stubGetSubscriptionInfo.callCount).to.be(1);
+            expect(stubGetSubscriptionInfo.calledWithExactly(funcDef, topicName)).to.be(true);
+
+            // Since we mocked getSubscriptionInfo we should
+            // only have one call to the request (to remove the subscription)
+            expect(requestMethod.callCount).to.be(1);
+
+            params = {
+               SubscriptionArn: 'some-subscription-arn'
+            };
+
+            expect(requestMethod.calledWithExactly('SNS', 'unsubscribe', params, stage, region))
+               .to
+               .be(true);
+
+         });
+
+
+      });
+
    });
 
    describe('_normalize', function() {
@@ -502,6 +766,66 @@ describe('serverless-plugin-external-sns-events', function() {
             .eql('Footopic');
       });
 
+   });
+
+   describe('_setSubscriptionAttributes', function() {
+
+      it('sets DeliveryPolicy attribute', function() {
+         // ARRANGE:
+         var mockServerless, requestMethod, actual, requestStub, plugin, subscriptionArn, attributeValue,
+             requestMethodArgs, requestMethodParamArg,
+             account = '12349',
+             topicName = 'cooltopic',
+             stage = 'test1',
+             region = 'us-west-42';
+
+         attributeValue = {
+            minDelayTarget: 60,
+            maxDelayTarget: 120,
+            numRetries: 5,
+            backoffFunction: 'linear'
+         };
+
+         subscriptionArn = 'arn:aws:sns:' + region + ':' + account + ':' + topicName + ':some-guid';
+
+         requestStub = sinon.stub();
+
+         requestStub.returns({
+            ResponseMetadata: {
+               RequestId: 'some-req-id'
+            }
+         });
+
+         mockServerless = createMockServerless(createMockRequest(requestStub));
+
+         requestMethod = sinon.spy(mockServerless.getProvider('aws'), 'request');
+
+         plugin = new Plugin(mockServerless, { stage: stage, region: region });
+
+
+         // ACT:
+         actual = plugin._setSubscriptionAttributes(subscriptionArn, {
+            name: DELIVERY_POLICY_ATTR,
+            value: attributeValue
+         });
+
+
+         // ASSERT:
+
+         expect(isPromise(actual)).to.be(true);
+
+         return actual.then(function() {
+            expect(requestMethod.callCount).to.be(1);
+            requestMethodArgs = requestMethod.getCall(0).args;
+            expect(requestMethodArgs[0]).to.be('SNS');
+            expect(requestMethodArgs[1]).to.be('setSubscriptionAttributes');
+            expect(requestMethodArgs[2].AttributeName).to.be(DELIVERY_POLICY_ATTR);
+            expect(requestMethodArgs[2].SubscriptionArn).to.be(subscriptionArn);
+
+            requestMethodParamArg = JSON.parse(requestMethodArgs[2].AttributeValue);
+            expect(requestMethodParamArg.healthyRetryPolicy).to.eql(attributeValue);
+         });
+      });
    });
 
 });
